@@ -118,6 +118,13 @@ func Run(ctx context.Context, checks []config.Check, dnsTargets, dnsServers []st
 }
 
 func worker(ctx context.Context, chk config.Check, p Prober, a *acc) {
+	// A prober panic must not take down the process — mark the check's
+	// source unavailable and let the goroutine die (spec §7).
+	defer func() {
+		if r := recover(); r != nil {
+			a.store.Emit(state.Event{Kind: state.EvSourceUnavailable, Subject: "health:" + chk.Name, Detail: fmt.Sprint(r)})
+		}
+	}()
 	c := &counter{limit: chk.Failures}
 	timeout := time.Duration(chk.TimeoutSecs) * time.Second
 	tick := func() {

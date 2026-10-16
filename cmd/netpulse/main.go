@@ -71,16 +71,14 @@ func main() {
 			f()
 		}()
 	}
-	run("sysnet", func() {
-		sysnet.Poll(ctx, "/sys", time.Duration(cfg.General.IfaceIntervalSecs)*time.Second, store)
-	})
-	run("routes", func() {
-		routes.Poll(ctx, 5*time.Second, append([]string{"default"}, cfg.General.Routes...), store)
-	})
+	// Bind cfg-derived args before spawning — doReload reassigns cfg.
+	ifaceInt := time.Duration(cfg.General.IfaceIntervalSecs) * time.Second
+	rts := append([]string{"default"}, cfg.General.Routes...)
+	tsInt := time.Duration(cfg.General.TailscaleIntervalSecs) * time.Second
+	run("sysnet", func() { sysnet.Poll(ctx, "/sys", ifaceInt, store) })
+	run("routes", func() { routes.Poll(ctx, 5*time.Second, rts, store) })
 	run("vpn", func() { vpn.Watch(ctx, store) })
-	run("tailscale", func() {
-		tailscale.Poll(ctx, time.Duration(cfg.General.TailscaleIntervalSecs)*time.Second, store, nil)
-	})
+	run("tailscale", func() { tailscale.Poll(ctx, tsInt, store, nil) })
 	hcCtx, hcCancel := context.WithCancel(ctx)
 	defer hcCancel()
 	hctx, c := hcCtx, cfg
