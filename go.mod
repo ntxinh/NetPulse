@@ -3,6 +3,7 @@ module github.com/exodia/netpulse
 go 1.27.1
 
 require (
+	fyne.io/systray v1.12.2
 	github.com/BurntSushi/toml v1.6.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/go-ping/ping v1.2.0
