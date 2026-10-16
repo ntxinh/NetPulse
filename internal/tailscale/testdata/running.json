@@ -1,0 +1,8 @@
+{
+  "BackendState": "Running",
+  "Self": {"TailscaleIPs": ["100.64.1.5", "fd7a:115c:a1e0::1"], "HostName": "ws"},
+  "Peer": {
+    "nodekey:a": {"HostName": "nas", "TailscaleIPs": ["100.64.1.10"], "Online": true, "ExitNode": true},
+    "nodekey:b": {"HostName": "laptop", "TailscaleIPs": ["100.64.1.12"], "Online": false, "ExitNode": false}
+  }
+}
