@@ -85,10 +85,9 @@ type Store struct {
 	health HealthSnap
 	subs   []chan Event
 
-	// routesPrev tracks which watched prefixes were missing last commit.
+	// routesPrev holds all currently-missing watched prefixes; Severity is
+	// red while any route is missing (spec §5: watched or default route).
 	routesPrev map[string]bool
-	// defaultMissing tracks whether the "default" prefix is missing.
-	defaultMissing bool
 	// vpnDropped is set when all VPN connections drop and cleared when any
 	// connection is active again. SevDown per spec §5 ("VPN dropped").
 	vpnDropped bool
@@ -179,7 +178,7 @@ func (s *Store) CommitHealth(n HealthSnap) []Event {
 }
 
 // CommitRoutes: missing = watched prefixes absent from the routing table.
-// The "default" prefix is always watched; its absence is tracked for Severity.
+// Severity is red while any watched prefix is missing.
 // First commit establishes the baseline silently.
 func (s *Store) CommitRoutes(missing []string) []Event {
 	s.mu.Lock()
@@ -196,7 +195,6 @@ func (s *Store) CommitRoutes(missing []string) []Event {
 		}
 	}
 	s.routesPrev = next
-	_, s.defaultMissing = next["default"]
 	s.mu.Unlock()
 	s.fanout(evs)
 	return evs
@@ -229,7 +227,7 @@ func (s *Store) Snapshot() (SysSnap, VpnSnap, TailscaleSnap, HealthSnap) {
 // Severity:
 //
 //	SevDown: any critical check down, ts.Backend in {"Stopped","NeedsLogin"},
-//	         default route missing (tracked via CommitRoutes("default")),
+//	         any watched route missing (tracked via CommitRoutes),
 //	         or all VPN connections dropped after having been active.
 //	SevDegraded: non-critical check down, any Unavailable source, or
 //	             ts.Backend == "unavailable".
@@ -247,7 +245,7 @@ func (s *Store) Severity() Severity {
 	if s.ts.Backend == "Stopped" || s.ts.Backend == "NeedsLogin" {
 		return SevDown
 	}
-	if s.defaultMissing || s.vpnDropped {
+	if len(s.routesPrev) > 0 || s.vpnDropped {
 		return SevDown
 	}
 	for _, r := range s.health.Results {

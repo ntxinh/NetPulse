@@ -62,3 +62,19 @@ func TestVpnDropSeverity(t *testing.T) {
 		t.Fatal("VPN back up should clear SevDown")
 	}
 }
+
+func TestRouteMissingSeverity(t *testing.T) {
+	s := NewStore()
+	s.CommitRoutes([]string{"10.0.0.0/8"})
+	if s.Severity() != SevDown {
+		t.Fatal("missing watched route should be SevDown")
+	}
+	s.CommitRoutes(nil)
+	if s.Severity() != SevOk {
+		t.Fatal("all routes present should be SevOk")
+	}
+	s.CommitRoutes([]string{"default"})
+	if s.Severity() != SevDown {
+		t.Fatal("missing default route should be SevDown")
+	}
+}
