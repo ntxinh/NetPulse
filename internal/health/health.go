@@ -90,6 +90,13 @@ func (a *acc) commit() {
 // and no goroutine — worker-internal errors never enter the failure counter.
 func Run(ctx context.Context, checks []config.Check, dnsTargets, dnsServers []string, store *state.Store) {
 	a := &acc{results: make(map[string]state.Result, len(checks)), store: store}
+	// Pass 1: build all probers and record constructor errors before any
+	// worker goroutine exists — the map writes stay single-threaded.
+	type job struct {
+		chk config.Check
+		p   Prober
+	}
+	var jobs []job
 	for _, chk := range checks {
 		p, err := ForCheck(chk, dnsTargets, dnsServers)
 		if err != nil {
@@ -100,10 +107,13 @@ func Run(ctx context.Context, checks []config.Check, dnsTargets, dnsServers []st
 			}
 			continue
 		}
-		go worker(ctx, chk, p, a)
+		jobs = append(jobs, job{chk, p})
 	}
 	if len(a.results) > 0 {
 		a.commit()
+	}
+	for _, j := range jobs {
+		go worker(ctx, j.chk, j.p, a)
 	}
 }
 
@@ -114,6 +124,11 @@ func worker(ctx context.Context, chk config.Check, p Prober, a *acc) {
 		pctx, cancel := context.WithTimeout(ctx, timeout)
 		lat, err := p(pctx, timeout)
 		cancel()
+		// Parent ctx cancelled = shutdown/reload, not a completed probe that
+		// fails. pctx deadline exceeded is a genuine timeout and must count.
+		if ctx.Err() != nil {
+			return
+		}
 		if r, ok := c.observe(chk.Name, chk.IsCritical(), lat, err); ok {
 			a.mu.Lock()
 			a.results[chk.Name] = r
