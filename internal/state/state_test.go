@@ -49,3 +49,16 @@ func TestVpnDiff(t *testing.T) {
 		t.Fatalf("want EvVpnChanged for dropped corp, got %v", evs)
 	}
 }
+
+func TestVpnDropSeverity(t *testing.T) {
+	s := NewStore()
+	s.CommitVpn(VpnSnap{Active: []string{"corp"}})
+	s.CommitVpn(VpnSnap{Active: nil})
+	if s.Severity() != SevDown {
+		t.Fatal("all VPNs dropped should be SevDown")
+	}
+	s.CommitVpn(VpnSnap{Active: []string{"corp"}})
+	if s.Severity() == SevDown {
+		t.Fatal("VPN back up should clear SevDown")
+	}
+}

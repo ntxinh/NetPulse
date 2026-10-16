@@ -89,6 +89,9 @@ type Store struct {
 	routesPrev map[string]bool
 	// defaultMissing tracks whether the "default" prefix is missing.
 	defaultMissing bool
+	// vpnDropped is set when all VPN connections drop and cleared when any
+	// connection is active again. SevDown per spec §5 ("VPN dropped").
+	vpnDropped bool
 }
 
 func NewStore() *Store {
@@ -124,6 +127,11 @@ func (s *Store) CommitVpn(n VpnSnap) []Event {
 	}
 	if !s.vpn.Unavailable && n.Unavailable {
 		evs = append(evs, Event{Kind: EvSourceUnavailable, Subject: "networkmanager"})
+	}
+	if len(s.vpn.Active) > 0 && len(n.Active) == 0 {
+		s.vpnDropped = true
+	} else if len(n.Active) > 0 {
+		s.vpnDropped = false
 	}
 	s.vpn = n
 	s.mu.Unlock()
@@ -221,7 +229,8 @@ func (s *Store) Snapshot() (SysSnap, VpnSnap, TailscaleSnap, HealthSnap) {
 // Severity:
 //
 //	SevDown: any critical check down, ts.Backend in {"Stopped","NeedsLogin"},
-//	         or default route missing (tracked via CommitRoutes("default")).
+//	         default route missing (tracked via CommitRoutes("default")),
+//	         or all VPN connections dropped after having been active.
 //	SevDegraded: non-critical check down, any Unavailable source, or
 //	             ts.Backend == "unavailable".
 //	else SevOk.
@@ -238,7 +247,7 @@ func (s *Store) Severity() Severity {
 	if s.ts.Backend == "Stopped" || s.ts.Backend == "NeedsLogin" {
 		return SevDown
 	}
-	if s.defaultMissing {
+	if s.defaultMissing || s.vpnDropped {
 		return SevDown
 	}
 	for _, r := range s.health.Results {
