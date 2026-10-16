@@ -109,9 +109,9 @@ func Run(ctx context.Context, checks []config.Check, dnsTargets, dnsServers []st
 		}
 		jobs = append(jobs, job{chk, p})
 	}
-	if len(a.results) > 0 {
-		a.commit()
-	}
+	// Commit unconditionally — a reload with removed/renamed checks must
+	// overwrite the previous snapshot (empty Results clears stale entries).
+	a.commit()
 	for _, j := range jobs {
 		go worker(ctx, j.chk, j.p, a)
 	}

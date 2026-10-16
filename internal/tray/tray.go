@@ -48,6 +48,12 @@ func Run(ctx context.Context, store *state.Store, reload func(), quit func()) er
 		func() { onReady(ctx, store, reload, quit) },
 		func() {},
 	)
+	// systray.Run returns only after systray.Quit() — normally ctx-driven.
+	// An early return (e.g. internal loop exit) without ctx cancel means the
+	// tray is dead: report it so the caller degrades to notify-only.
+	if ctx.Err() == nil {
+		return fmt.Errorf("tray: systray loop exited unexpectedly")
+	}
 	return nil
 }
 
@@ -73,13 +79,19 @@ func onReady(ctx context.Context, store *state.Store, reload func(), quit func()
 }
 
 // eventLoop rebuilds on each store event, coalesced by a 250ms debounce.
+// Silent commits (sys throughput, Err→nil recovery) emit no events, so a
+// 2s tick keeps the menu fresh — rebuild is cheap.
 func eventLoop(ctx context.Context, evs chan state.Event, rebuild func()) {
 	var timerC <-chan time.Time
 	var timer *time.Timer
+	refresh := time.NewTicker(2 * time.Second)
+	defer refresh.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-refresh.C:
+			rebuild()
 		case _, ok := <-evs:
 			if !ok {
 				return

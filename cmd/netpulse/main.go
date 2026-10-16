@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -58,14 +59,32 @@ func main() {
 		}
 	}()
 
-	// workers
-	go sysnet.Poll(ctx, "/sys", time.Duration(cfg.General.IfaceIntervalSecs)*time.Second, store)
-	go routes.Poll(ctx, 5*time.Second, append([]string{"default"}, cfg.General.Routes...), store)
-	go vpn.Watch(ctx, store)
-	go tailscale.Poll(ctx, time.Duration(cfg.General.TailscaleIntervalSecs)*time.Second, store, nil)
+	// workers — each recovered at the goroutine boundary; a panic marks the
+	// source unavailable instead of taking down the process (spec §7).
+	run := func(name string, f func()) {
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					store.Emit(state.Event{Kind: state.EvSourceUnavailable, Subject: name, Detail: fmt.Sprint(r)})
+				}
+			}()
+			f()
+		}()
+	}
+	run("sysnet", func() {
+		sysnet.Poll(ctx, "/sys", time.Duration(cfg.General.IfaceIntervalSecs)*time.Second, store)
+	})
+	run("routes", func() {
+		routes.Poll(ctx, 5*time.Second, append([]string{"default"}, cfg.General.Routes...), store)
+	})
+	run("vpn", func() { vpn.Watch(ctx, store) })
+	run("tailscale", func() {
+		tailscale.Poll(ctx, time.Duration(cfg.General.TailscaleIntervalSecs)*time.Second, store, nil)
+	})
 	hcCtx, hcCancel := context.WithCancel(ctx)
 	defer hcCancel()
-	go health.Run(hcCtx, cfg.Checks, cfg.DNS.Targets, cfg.DNS.Servers, store)
+	hctx, c := hcCtx, cfg
+	run("health", func() { health.Run(hctx, c.Checks, c.DNS.Targets, c.DNS.Servers, store) })
 
 	// config reload — shared by fsnotify watch and the tray menu item.
 	// Serialized: both callers run on separate goroutines and reassign
@@ -82,7 +101,8 @@ func main() {
 		cfg = nc
 		hcCancel()
 		hcCtx, hcCancel = context.WithCancel(ctx)
-		go health.Run(hcCtx, cfg.Checks, cfg.DNS.Targets, cfg.DNS.Servers, store)
+		hctx, c := hcCtx, cfg // bind before the goroutine reads them
+		run("health", func() { health.Run(hctx, c.Checks, c.DNS.Targets, c.DNS.Servers, store) })
 		store.EmitConfigReloaded()
 	}
 	unwatch, err := config.Watch(cfgPath, func(*config.Config) { doReload() })
@@ -92,7 +112,8 @@ func main() {
 		defer func() { _ = unwatch() }()
 	}
 
-	// tray (blocks); menu unavailable → notify-only
+	// tray (blocks); menu unavailable or died mid-run → notify-only until
+	// ctx is cancelled (workers + config watch keep running).
 	if err := tray.Run(ctx, store, doReload, cancel); err != nil {
 		log.Printf("tray unavailable, notify-only: %v", err)
 		<-ctx.Done()

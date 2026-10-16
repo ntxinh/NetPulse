@@ -91,3 +91,24 @@ func TestRunRace(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+// A reload that removes every check must clear the committed snapshot —
+// stale results from the previous Run must not linger as phantom DOWNs.
+func TestRunClearsStaleResults(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	store := state.NewStore()
+	// "nope" fails ForCheck → committed as a down result synchronously.
+	Run(ctx, []config.Check{
+		{Name: "a", Type: "nope", Target: "x", IntervalSecs: 60, TimeoutSecs: 1, Failures: 1},
+	}, nil, nil, store)
+	_, _, _, h := store.Snapshot()
+	if len(h.Results) != 1 || h.Results[0].Name != "a" {
+		t.Fatalf("want committed result a, got %+v", h.Results)
+	}
+	Run(ctx, nil, nil, nil, store)
+	_, _, _, h = store.Snapshot()
+	if len(h.Results) != 0 {
+		t.Fatalf("stale result survived empty reload: %+v", h.Results)
+	}
+}

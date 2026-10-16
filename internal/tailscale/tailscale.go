@@ -6,6 +6,7 @@
 package tailscale
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -77,7 +78,12 @@ func trimDot(s string) string { return strings.TrimSuffix(s, ".") }
 func Poll(ctx context.Context, interval time.Duration, store *state.Store, execFn func(ctx context.Context) ([]byte, error)) {
 	if execFn == nil {
 		execFn = func(ctx context.Context) ([]byte, error) {
-			return exec.CommandContext(ctx, "tailscale", "status", "--json").Output()
+			// Stdout buffer, not CombinedOutput: a stopped daemon exits
+			// non-zero but still emits valid status JSON on stdout.
+			var stdout bytes.Buffer
+			cmd := exec.CommandContext(ctx, "tailscale", "status", "--json")
+			cmd.Stdout = &stdout
+			return stdout.Bytes(), cmd.Run()
 		}
 	}
 	ticker := time.NewTicker(interval)
@@ -86,6 +92,9 @@ func Poll(ctx context.Context, interval time.Duration, store *state.Store, execF
 
 	poll := func() {
 		out, err := execFn(ctx)
+		// Try stdout first: `tailscale status --json` exits non-zero when
+		// the daemon is stopped but still prints valid JSON.
+		snap, perr := Parse(out)
 		switch {
 		case errors.Is(err, exec.ErrNotFound):
 			if !unavailable { // commit once, then poll at 4x to detect install
@@ -93,19 +102,16 @@ func Poll(ctx context.Context, interval time.Duration, store *state.Store, execF
 				ticker.Reset(4 * interval)
 				unavailable = true
 			}
-		case err != nil:
-			log.Printf("tailscale: exec: %v", err)
-		default:
-			snap, err := Parse(out)
-			if err != nil {
-				log.Printf("tailscale: parse: %v (keeping last snapshot)", err)
-				return
-			}
+		case perr == nil:
 			store.CommitTailscale(snap)
 			if unavailable {
 				ticker.Reset(interval)
 				unavailable = false
 			}
+		case err != nil:
+			log.Printf("tailscale: exec: %v", err)
+		default:
+			log.Printf("tailscale: parse: %v (keeping last snapshot)", perr)
 		}
 	}
 
