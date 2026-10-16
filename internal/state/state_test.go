@@ -76,7 +76,6 @@ func TestVpnUnavailableNotADrop(t *testing.T) {
 	}
 }
 
-
 func TestRouteMissingSeverity(t *testing.T) {
 	s := NewStore()
 	s.CommitRoutes([]string{"10.0.0.0/8"})
