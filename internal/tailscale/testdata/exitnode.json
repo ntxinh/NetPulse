@@ -1,0 +1,8 @@
+{
+  "BackendState": "Running",
+  "Self": {"TailscaleIPs": ["100.64.1.5"], "HostName": "ws"},
+  "ExitNodeStatus": {"ID": "1", "Online": true, "TailscaleIPs": ["100.64.1.10"], "DNSName": "nas.example.beta.tailscale.net."},
+  "Peer": {
+    "nodekey:a": {"HostName": "nas", "TailscaleIPs": ["100.64.1.10"], "Online": true, "ExitNode": true}
+  }
+}
