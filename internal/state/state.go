@@ -112,25 +112,30 @@ func (s *Store) CommitSys(n SysSnap) []Event {
 func (s *Store) CommitVpn(n VpnSnap) []Event {
 	s.mu.Lock()
 	var evs []Event
-	prev := set(s.vpn.Active)
-	next := set(n.Active)
-	for _, name := range s.vpn.Active {
-		if !next[name] {
-			evs = append(evs, Event{Kind: EvVpnChanged, Subject: name, Detail: "dropped"})
+	// While NM is unreachable the Active set is unknown, not empty: skip
+	// the diff and the drop latch entirely (deferral from task 1 review —
+	// a lost D-Bus name must not red the icon or report drops).
+	if !n.Unavailable {
+		prev := set(s.vpn.Active)
+		next := set(n.Active)
+		for _, name := range s.vpn.Active {
+			if !next[name] {
+				evs = append(evs, Event{Kind: EvVpnChanged, Subject: name, Detail: "dropped"})
+			}
 		}
-	}
-	for _, name := range n.Active {
-		if !prev[name] {
-			evs = append(evs, Event{Kind: EvVpnChanged, Subject: name, Detail: "up"})
+		for _, name := range n.Active {
+			if !prev[name] {
+				evs = append(evs, Event{Kind: EvVpnChanged, Subject: name, Detail: "up"})
+			}
+		}
+		if len(s.vpn.Active) > 0 && len(n.Active) == 0 {
+			s.vpnDropped = true
+		} else if len(n.Active) > 0 {
+			s.vpnDropped = false
 		}
 	}
 	if !s.vpn.Unavailable && n.Unavailable {
 		evs = append(evs, Event{Kind: EvSourceUnavailable, Subject: "networkmanager"})
-	}
-	if len(s.vpn.Active) > 0 && len(n.Active) == 0 {
-		s.vpnDropped = true
-	} else if len(n.Active) > 0 {
-		s.vpnDropped = false
 	}
 	s.vpn = n
 	s.mu.Unlock()

@@ -62,6 +62,20 @@ func TestVpnDropSeverity(t *testing.T) {
 		t.Fatal("VPN back up should clear SevDown")
 	}
 }
+func TestVpnUnavailableNotADrop(t *testing.T) {
+	s := NewStore()
+	s.CommitVpn(VpnSnap{Active: []string{"corp"}})
+	evs := s.CommitVpn(VpnSnap{Unavailable: true})
+	for _, ev := range evs {
+		if ev.Kind == EvVpnChanged {
+			t.Fatalf("unreachable NM must not emit EvVpnChanged, got %v", evs)
+		}
+	}
+	if s.Severity() != SevDegraded {
+		t.Fatalf("NM unreachable should be SevDegraded, got %v", s.Severity())
+	}
+}
+
 
 func TestRouteMissingSeverity(t *testing.T) {
 	s := NewStore()
