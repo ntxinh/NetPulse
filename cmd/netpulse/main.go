@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -66,8 +67,13 @@ func main() {
 	defer hcCancel()
 	go health.Run(hcCtx, cfg.Checks, cfg.DNS.Targets, cfg.DNS.Servers, store)
 
-	// config reload — shared by fsnotify watch and the tray menu item
+	// config reload — shared by fsnotify watch and the tray menu item.
+	// Serialized: both callers run on separate goroutines and reassign
+	// cfg/hcCtx/hcCancel.
+	var reloadMu sync.Mutex
 	doReload := func() {
+		reloadMu.Lock()
+		defer reloadMu.Unlock()
 		nc, err := config.Load(cfgPath)
 		if err != nil {
 			store.Emit(state.Event{Kind: state.EvConfigReloaded, Detail: "config invalid, keeping previous"})
